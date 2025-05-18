@@ -1,37 +1,48 @@
-from fastapi import FastAPI
-from .routes.api import router
-from .middleware.logging import LoggingMiddleware
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import os
-from dotenv import load_dotenv
+import io
+import docx2txt
+import PyPDF2
+import re
 
-# Load environment variables
-load_dotenv()
+app = FastAPI()
 
-app = FastAPI(
-    title=os.getenv("APP_NAME", "FastAPI Backend"),
-    version=os.getenv("API_VERSION", "v1")
-)
-
-# Add CORS middleware
+# Allow frontend (Netlify) to access backend (Railway)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Add logging middleware
-app.add_middleware(LoggingMiddleware)
+# Sample skill set
+SKILLS = [
+    "Python", "JavaScript", "Java", "C++", "React", "Node.js", "Django",
+    "FastAPI", "SQL", "MongoDB", "Machine Learning", "HTML", "CSS", "Git", "REST API"
+]
 
-# Include routes
-app.include_router(router, prefix="/api")
+def extract_text_from_pdf(file: UploadFile) -> str:
+    pdf_reader = PyPDF2.PdfReader(file.file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
 
-@app.get("/")
-def read_root():
-    return {
-        "message": "Hello World from FastAPI!",
-        "app_name": os.getenv("APP_NAME", "FastAPI Backend"),
-        "version": os.getenv("API_VERSION", "v1")
-    } 
+def extract_text_from_docx(file: UploadFile) -> str:
+    content = io.BytesIO(file.file.read())
+    return docx2txt.process(content)
+
+@app.post("/extract-skills/")
+async def extract_skills(file: UploadFile = File(...)):
+    text = ""
+    if file.filename.endswith(".pdf"):
+        text = extract_text_from_pdf(file)
+    elif file.filename.endswith(".docx"):
+        text = extract_text_from_docx(file)
+    else:
+        return {"error": "Unsupported file type"}
+
+    text_lower = text.lower()
+    found_skills = [skill for skill in SKILLS if skill.lower() in text_lower]
+    return {"skills": list(set(found_skills))}
